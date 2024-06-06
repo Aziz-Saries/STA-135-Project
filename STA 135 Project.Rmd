@@ -1,0 +1,60 @@
+---
+title: "STA 135 Project"
+output: html_document
+date: "2024-06-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mlbench)
+```
+
+```{r}
+data(PimaIndiansDiabetes)
+```
+
+```{r}
+summary(PimaIndiansDiabetes)
+```
+Pregnant: Number of times pregnant
+Glucose : Plasma glucose concentration (glucose tolerance test)
+pressure	Diastolic blood pressure (mm Hg) Note: Already kind of weird they aren't doing the S
+triceps:	Triceps skin fold thickness (mm)
+insulin:	2-Hour serum insulin (mu U/ml)
+mass:	Body mass index
+pedigree:	Diabetes pedigree function
+age:	Age (years)
+diabetes:	Class variable (test for diabetes) Note: We are going to try to predict this
+
+However looking at this summary we can see that there is some variables that shouldn't contain a "0" value and should instead contain an NA. This is further supported in the help file of this dataset. 
+```{r}
+table(PimaIndiansDiabetes$pressure)
+```
+For example, we can see that there is 35 people that have a blood pressure value of 0 mm Hg. Since this is an impossible reading to receive on an alive human, we will remove these 0 values and replace them with a missing value(NA).
+
+After we have converted all of those false values into NA's we will simply replace those values using the mean of that specific feature/column.
+```{r}
+cleanData <- function(column) {
+  medianValue <- median(column[column != 0], na.rm = TRUE)
+  column[column == 0] <- medianValue
+  return(column)
+}
+
+PimaIndiansDiabetesClean <- PimaIndiansDiabetes
+
+
+PimaIndiansDiabetesClean$glucose <- cleanData(PimaIndiansDiabetes$glucose)
+PimaIndiansDiabetesClean$pressure <- cleanData(PimaIndiansDiabetes$pressure)
+PimaIndiansDiabetesClean$triceps <- cleanData(PimaIndiansDiabetes$triceps)
+PimaIndiansDiabetesClean$insulin <- cleanData(PimaIndiansDiabetes$insulin)
+PimaIndiansDiabetesClean$mass <- cleanData(PimaIndiansDiabetes$mass)
+```
+
+```{r}
+summary(PimaIndiansDiabetesClean)
+```
+
+```{r}
+table(PimaIndiansDiabetesClean$pressure)
+```
+
