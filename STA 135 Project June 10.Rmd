@@ -1,0 +1,188 @@
+---
+title: "STA 135 Project"
+output: html_document
+date: "2024-06-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mlbench)
+library(corrplot)
+library(MASS)
+library(heplots)
+library(car) 
+library(gridExtra)
+library(klaR)
+```
+
+```{r}
+data(PimaIndiansDiabetes)
+```
+
+```{r}
+summary(PimaIndiansDiabetes)
+```
+Pregnant: Number of times pregnant
+Glucose : Plasma glucose concentration (glucose tolerance test)
+pressure	Diastolic blood pressure (mm Hg) Note: Already kind of weird they aren't doing the S
+triceps:	Triceps skin fold thickness (mm)
+insulin:	2-Hour serum insulin (mu U/ml)
+mass:	Body mass index
+pedigree:	Diabetes pedigree function
+age:	Age (years)
+diabetes:	Class variable (test for diabetes) Note: We are going to try to predict this
+
+However looking at this summary we can see that there is some variables that shouldn't contain a "0" value and should instead contain an NA. This is further supported in the help file of this dataset. 
+```{r}
+table(PimaIndiansDiabetes$pressure)
+```
+For example, we can see that there is 35 people that have a blood pressure value of 0 mm Hg. Since this is an impossible reading to receive on an alive human, we will remove these 0 values and replace them with a missing value(NA).
+
+After we have converted all of those false values into NA's we will simply replace those values using the median of that specific feature/column.
+```{r}
+cleanData <- function(column) {
+  medianValue <- median(column[column != 0], na.rm = TRUE)
+  column[column == 0] <- medianValue
+  return(column)
+}
+
+PimaIndiansDiabetesClean <- PimaIndiansDiabetes
+
+
+PimaIndiansDiabetesClean$glucose <- cleanData(PimaIndiansDiabetes$glucose)
+PimaIndiansDiabetesClean$pressure <- cleanData(PimaIndiansDiabetes$pressure)
+PimaIndiansDiabetesClean$triceps <- cleanData(PimaIndiansDiabetes$triceps)
+PimaIndiansDiabetesClean$insulin <- cleanData(PimaIndiansDiabetes$insulin)
+PimaIndiansDiabetesClean$mass <- cleanData(PimaIndiansDiabetes$mass)
+```
+
+```{r}
+summary(PimaIndiansDiabetesClean)
+```
+
+```{r}
+table(PimaIndiansDiabetesClean$pressure)
+```
+We will now observe if there is any multicollinearity throughout the dataset. 
+```{r}
+cor_matrix <- cor(PimaIndiansDiabetesClean[, -9], use = "complete.obs")
+
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45, addCoef.col = "black", number.cex = 0.7)
+```
+These correlations are moderately high, but not very high so while there might be some multicollinearity we can reasonably assume that there is not enough to cause major issues. 
+
+We will now check and observe if our data follows a roughly normal distribution. We will first do this by creating multiple Q-Q(Quantile-Quantile) plots which compare the quantiles of the data to the theoretical quantiles if the data perfectly followed a normal distribution. If the data is perfectly normally distributed, the points will fall directly on the reference line. 
+```{r}
+plotQqplots <- function(data) {
+  for (col in colnames(data)) {
+    qqPlot(data[[col]], main = paste("Q-Q Plot of", col))
+  }
+}
+
+plotQqplots(PimaIndiansDiabetesClean[, 1:8])
+```
+We can see that very many of the Q-Q plot deviate significantly from the line and the only plot that fits the reference line relatively well is the blood pressure, however it still deviates at the front and tail ends. 
+
+This is further supported when we conduct a Shapiro-Wilks Test, which is a test to see if the data follows a normal distribution. The Shapiro-Wilks test has a null hypothesis that the data was drawn from a normal distribution. 
+```{r}
+shapiroTests <- function(data) {
+  results <- sapply(data, function(x) shapiro.test(x)$p.value)
+  return(results)
+}
+
+shapiroResults <- shapiroTests(PimaIndiansDiabetesClean[, 1:8])
+print(shapiroResults)
+```
+As we can see from the p-values above, they are extremely low, and they are significantly less than a typical significance level of 0.05. Therefore we reject our null hypothesis and conclude that the data does not in fact follow a normal distribution. 
+
+QDA/LDA Portion
+Since the data did not meet the assumptions for Linear Discriminant Analysis (LDA), we proceeded with QDA. We first tested the equality of covariance matrices using Box's M test, which showed significant differences, justifying the use of QDA.
+```{r}
+res <- boxM(PimaIndiansDiabetesClean[, 1:8], PimaIndiansDiabetesClean[, "diabetes"])
+print(res)
+
+summary(res)
+
+boxM(cbind(pregnant, glucose, pressure, triceps, insulin, mass, pedigree, age) ~ diabetes, 
+     data = PimaIndiansDiabetesClean)
+```
+
+Since our p-value from Box's M test is extremely small (< 2.2e-16), which is much lower than any common significance level (0.05 for example), we will reject our null hypothesis. This means there is strong evidence that the covariance matrices are not equal across the groups. As a result of this, the assumption of equal covariance matrices required for Linear Discriminant Analysis (LDA) is violated, and we will use QDA going forward. 
+
+QDA
+We then split the data into training and testing sets and built the QDA model.
+```{r}
+set.seed(123)
+ind <- sample(2, nrow(PimaIndiansDiabetesClean), replace = TRUE, prob = c(0.6, 0.4))
+training <- PimaIndiansDiabetesClean[ind == 1, ]
+testing <- PimaIndiansDiabetesClean[ind == 2, ]
+
+qdaModel <- qda(diabetes ~ pregnant + glucose + pressure + triceps + insulin + mass + pedigree + age, data = training)
+print(qdaModel)
+
+trainPredictions <- predict(qdaModel, training)$class
+trainTab <- table(Predicted = trainPredictions, Actual = training$diabetes)
+print(trainTab)
+
+testPredictions <- predict(qdaModel, testing)$class
+testTab <- table(Predicted = testPredictions, Actual = testing$diabetes)
+print(testTab)
+
+qdaAccuracy <- sum(diag(testTab)) / sum(testTab)
+
+print(round(qdaAccuracy,4))
+```
+The QDA performed moderately well and it correctly predicted whether a not one of the Pima Indian women would have diabetes or not 72.67% of the time. We will use this as a baseline going forward to compare our other models to. 
+
+Logistic Regression
+```{r}
+lm <- glm(diabetes ~ pregnant + glucose + pressure + triceps + insulin + mass + pedigree + age, 
+                   data = PimaIndiansDiabetesClean, family = binomial)
+summary(lm)
+
+logisticPredictions <- predict(lm, PimaIndiansDiabetesClean, type = "response")
+logisticClass <- ifelse(logisticPredictions > 0.5, "pos", "neg")
+logisticCM <- table(PimaIndiansDiabetesClean$diabetes, logisticClass)
+print(logisticCM)
+logisticAccuracy <- sum(diag(logisticCM)) / sum(logisticCM)
+print(round(logisticAccuracy,4))
+```
+As you can see the logistic regression performed slightly better than the QDA, since it was able to predict whether or not one of the subjects would have diabetes 77.47% of the time. This is likely due to logistic regression not assuming normality of the data and it being a very effective model for binary classification. Additionally in our check for multicollinearity earlier we found that the predictors didn't have much multicollinearity which and logistic regression requires that the independent variables are not highly correlated with each other.
+
+
+```{r qda_partimat, fig.width=25, fig.height=25}
+partimat(diabetes ~ pregnant + glucose + pressure + triceps + insulin + mass + pedigree + age, data = training, method = "qda")
+```
+
+```{r}
+## PCA
+a <- PimaIndiansDiabetesClean[, -9] # Removing the class variable 'diabetes'
+ev <- eigen((cov(a)))$values
+eve <- eigen(cov(a))$vectors
+l1 <- eve[1:8,1] %*% t(a)
+l2 <- eve[1:8,2] %*% t(a)
+plot(-l1[1,1:nrow(PimaIndiansDiabetesClean)], l2[1,1:nrow(PimaIndiansDiabetesClean)], main="PCA Plot")
+
+S <- cor(a)
+val <- eigen(S)$values
+vec <- eigen(S)$vectors
+par(mfrow = c(2, 1))
+plot(val, type = "b", main = "Scree Plot")
+screeplot(princomp(S), main = "Scree Plot")
+cumsum(val)/8
+par(mfrow = c(1, 1))
+plot(cumsum(val)/8, type = "b", main = "Cumulative percentage Plot")
+
+PCA <- princomp(a, cor = TRUE)
+PCA
+loadings(PCA)
+summary(PCA)
+par(mfrow = c(2, 2))
+biplot(PCA, choices = c(1, 3))
+biplot(PCA, choices = c(3, 3))
+biplot(PCA, choices = c(1, 2))
+biplot(PCA, choices = c(3, 2))
+```
+
+
